@@ -15,6 +15,7 @@ stdenv.mkDerivation {
     openssl
     libffi
     docker_compose
+    redis
   ];
   src = null;
   shellHook = ''

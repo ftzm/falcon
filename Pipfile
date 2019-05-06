@@ -11,6 +11,10 @@ flask = "*"
 redis = "*"
 rq = "*"
 webargs = "*"
+# pin apispec to prevent flasgger incompatibility:
+# https://github.com/rochacbruno/flasgger/issues/285
+apispec = "==1.0.0b5"
+flasgger = "*"
 
 mypy = "*"
 flake8 = "*"

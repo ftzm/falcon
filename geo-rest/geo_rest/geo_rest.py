@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, url_for
+from flask import Flask, jsonify, url_for
 import geocoder
 from typing import List
 
@@ -20,7 +20,7 @@ Swagger(app)
 
 def lookup_address(address: str) -> List[float]:
     g = geocoder.osm(address)
-    coordinates = g.latlng
+    coordinates = str(tuple(g.latlng))
     return coordinates
 
 
@@ -42,9 +42,9 @@ coordinates_args = {
 }
 
 
-@app.route("/coordinates", methods=["POST"])
+@app.route("/address/request", methods=["POST"])
 @use_kwargs(coordinates_args)
-def coordinates(coordinates):
+def address(coordinates):
     """Endpoint for looking up coordinates to produce an address.
     TODO: proper explanation
     ---
@@ -76,16 +76,16 @@ def coordinates(coordinates):
         example: {'coordinates':[55.674146, 12.569553]}
     """
     job = q.enqueue(lookup_coordinates, coordinates)
-    return jsonify({}), 202, {"Location": url_for("job", job_id=job.get_id())}
+    return jsonify({}), 202, {"Location": url_for("address_job", job_id=job.get_id())}
 
 
 address_args = {"address": fields.String(required=True)}
 
 
-@app.route("/address", methods=["POST"])
+@app.route("/coordinates/request", methods=["POST"])
 @use_kwargs(address_args)
-def address(address):
-    """Endpoint for looking up an address to produce an coordinates.
+def coordinates(address):
+    """Endpoint for looking up an address to produce coordinates.
     TODO: proper explanation
     ---
     parameters:
@@ -114,12 +114,12 @@ def address(address):
         example: {'address':'3605 Rue Saint Urbain, Montreal, CA'}
     """
     job = q.enqueue(lookup_address, address)
-    return jsonify({}), 202, {"Location": url_for("job", job_id=job.get_id())}
+    return jsonify({}), 202, {"Location": url_for("coordinates_job", job_id=job.get_id())}
 
 
-@app.route("/job/<job_id>")
-def job(job_id):
-    """Endpoint for looking up a job.
+@app.route("/address/job/<job_id>")
+def address_job(job_id):
+    """Endpoint for looking up an address-producing job.
     TODO: proper explanation
     ---
     responses:
@@ -128,7 +128,24 @@ def job(job_id):
         schema:
           type: object
           properties:
-          example: {'result':'Some data'}
+          example: {status: 'finished', 'result':'3605 Rue Saint Urbain, Montreal, CA'}
+    """
+    job = q.fetch_job(job_id)
+    result = job.result
+    return jsonify({"result": result, "status": job.get_status()})
+
+@app.route("/coordinates/job/<job_id>")
+def coordinates_job(job_id):
+    """Endpoint for looking up a coordinates-producing job.
+    TODO: proper explanation
+    ---
+    responses:
+      200:
+        description: OK
+        schema:
+          type: object
+          properties:
+          example: {status: 'finished', 'result':'(45.5128137, -73.5737152)'}
     """
     job = q.fetch_job(job_id)
     result = job.result

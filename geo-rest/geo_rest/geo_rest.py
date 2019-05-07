@@ -1,3 +1,5 @@
+import time
+import os
 from flask import Flask, jsonify, url_for
 import geocoder
 from typing import List
@@ -10,21 +12,41 @@ from webargs.flaskparser import use_kwargs
 
 from flasgger import Swagger
 
-q = Queue(connection=Redis())
+
+class Config(object):
+    DEBUG = False
+    REDIS_URI = 'redis'
+
+
+class DevelopmentConfig(Config):
+    DEBUG = True
+    REDIS_URI = 'localhost'
+
 
 app = Flask(__name__)
+
+flask_env = os.getenv("FLASK_ENV")
+if flask_env == "development":
+    app.config.from_object(DevelopmentConfig)
+else:
+    app.config.from_object(Config)
 
 app.config["SWAGGER"] = {"title": "Geolocation"}
 Swagger(app)
 
 
-def lookup_address(address: str) -> List[float]:
+q = Queue(connection=Redis(app.config["REDIS_URI"]))
+
+
+def lookup_address(address: str) -> str:
+    time.sleep(500)
     g = geocoder.osm(address)
     coordinates = str(tuple(g.latlng))
     return coordinates
 
 
 def lookup_coordinates(coordinates: List[float]) -> str:
+    time.sleep(500)
     g = geocoder.osm(coordinates, method="reverse")
     address = g.address
     return address
@@ -124,15 +146,26 @@ def address_job(job_id):
     ---
     responses:
       200:
-        description: OK
+        description: Show job status. `result` is null unless status is finished.
         schema:
           type: object
           properties:
-          example: {status: 'finished', 'result':'3605 Rue Saint Urbain, Montreal, CA'}
+            result:
+              type: string
+              nullable: true
+            status:
+              type: string
+              enum: [queued, finished, failed, started, deferred]
+        examples:
+          queued:
+            {status: 'queued', 'result': null}
+          finished:
+            {status: 'finished', 'result':'3605 Rue Saint Urbain, Montreal, CA'}
     """
     job = q.fetch_job(job_id)
     result = job.result
     return jsonify({"result": result, "status": job.get_status()})
+
 
 @app.route("/coordinates/job/<job_id>")
 def coordinates_job(job_id):

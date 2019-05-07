@@ -15,6 +15,7 @@ webargs = "*"
 # https://github.com/rochacbruno/flasgger/issues/285
 apispec = "==1.0.0b5"
 flasgger = "*"
+gunicorn = "*"
 
 mypy = "*"
 flake8 = "*"

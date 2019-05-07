@@ -1,0 +1,15 @@
+version: '3'
+services:
+  geo-worker:
+    image: geo-rest
+    entrypoint:
+      - rq
+      - worker
+      - -u
+      - redis://redis
+  geo-rest:
+    image: geo-rest
+    ports:
+      - "8001:80"
+  redis:
+    image: redis

@@ -1,65 +1,15 @@
+from flask import jsonify, url_for
 import logging
-import os
-from flask import Flask, jsonify, url_for
-import geocoder
-from typing import List, Optional
-
-from redis import Redis
-from rq import Queue
-
+from geo_rest import app
 from webargs import fields, ValidationError
 from webargs.flaskparser import use_kwargs
+from rq import Queue
+from redis import Redis
+from geo_rest.tasks import lookup_address, lookup_coordinates
 
-from flasgger import Swagger
 
 logger = logging.getLogger(__name__)
-
-
-class ProdConfig:
-    DEBUG = False
-    REDIS_URI = "redis"
-
-
-class DevConfig:
-    DEBUG = True
-    REDIS_URI = "localhost"
-
-
-app = Flask(__name__)
-
-flask_env = os.getenv("FLASK_ENV")
-if flask_env == "development":
-    app.config.from_object(DevConfig)
-else:
-    app.config.from_object(ProdConfig)
-
-app.config["SWAGGER"] = {"title": "Geolocation"}
-Swagger(app)
-
-
 q = Queue(connection=Redis(app.config["REDIS_URI"]))
-
-
-def lookup_address(address: str) -> Optional[str]:
-    """
-    Return the coordinates associated with an address, or None if no match is found
-    """
-    g = geocoder.osm(address)
-    if g.ok:
-        return str(tuple(g.latlng))
-    else:
-        return None
-
-
-def lookup_coordinates(coordinates: List[float]) -> Optional[str]:
-    """
-    Return the address associated with coordinates, or None if no match is found
-    """
-    g = geocoder.osm(coordinates, method="reverse")
-    if g.ok:
-        return g.address
-    else:
-        return None
 
 
 def validate_coordinates(coordinates):

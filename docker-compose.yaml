@@ -7,6 +7,8 @@ services:
       - worker
       - -u
       - redis://redis
+    depends_on:
+      - redis
   geo-rest:
     image: geo-rest
     ports:

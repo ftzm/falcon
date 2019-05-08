@@ -20,6 +20,9 @@ gunicorn = "*"
 mypy = "*"
 flake8 = "*"
 black = "*"
+pytest = "*"
+pytest-mock = "*"
+fakeredis = "*"
 
 [requires]
 python_version = "3"

@@ -1,8 +1,8 @@
-import time
+import logging
 import os
 from flask import Flask, jsonify, url_for
 import geocoder
-from typing import List
+from typing import List, Optional
 
 from redis import Redis
 from rq import Queue
@@ -12,24 +12,26 @@ from webargs.flaskparser import use_kwargs
 
 from flasgger import Swagger
 
+logger = logging.getLogger(__name__)
 
-class Config(object):
+
+class ProdConfig:
     DEBUG = False
-    REDIS_URI = 'redis'
+    REDIS_URI = "redis"
 
 
-class DevelopmentConfig(Config):
+class DevConfig:
     DEBUG = True
-    REDIS_URI = 'localhost'
+    REDIS_URI = "localhost"
 
 
 app = Flask(__name__)
 
 flask_env = os.getenv("FLASK_ENV")
 if flask_env == "development":
-    app.config.from_object(DevelopmentConfig)
+    app.config.from_object(DevConfig)
 else:
-    app.config.from_object(Config)
+    app.config.from_object(ProdConfig)
 
 app.config["SWAGGER"] = {"title": "Geolocation"}
 Swagger(app)
@@ -38,28 +40,42 @@ Swagger(app)
 q = Queue(connection=Redis(app.config["REDIS_URI"]))
 
 
-def lookup_address(address: str) -> str:
-    time.sleep(500)
+def lookup_address(address: str) -> Optional[str]:
+    """
+    Return the coordinates associated with an address, or None if no match is found
+    """
     g = geocoder.osm(address)
-    coordinates = str(tuple(g.latlng))
-    return coordinates
+    if g.ok:
+        return str(tuple(g.latlng))
+    else:
+        return None
 
 
-def lookup_coordinates(coordinates: List[float]) -> str:
-    time.sleep(500)
+def lookup_coordinates(coordinates: List[float]) -> Optional[str]:
+    """
+    Return the address associated with coordinates, or None if no match is found
+    """
     g = geocoder.osm(coordinates, method="reverse")
-    address = g.address
-    return address
+    if g.ok:
+        return g.address
+    else:
+        return None
 
 
-def assert_coordinates_length(coordinates):
+def validate_coordinates(coordinates):
     if not len(coordinates) == 2:
-        raise ValidationError("coordinates list must contain exactly two floats.")
+        raise ValidationError("Coordinates list must contain exactly two floats.")
+    lat = coordinates[0]
+    if not (-90 <= lat <= 90):
+        raise ValidationError("Latitude must be between -90 and 90")
+    lng = coordinates[1]
+    if not (-180 <= lng <= 180):
+        raise ValidationError("Longitude must be between -180 and 180")
 
 
 coordinates_args = {
     "coordinates": fields.List(
-        fields.Float, required=True, validate=assert_coordinates_length
+        fields.Float, required=True, validate=validate_coordinates
     )
 }
 
@@ -76,10 +92,16 @@ def address(coordinates):
         in: body
         description: Latitutde and longitude coordinates as a two item list.
         schema:
-           $ref: '#/definitions/coordinates'
+          type: object
+          properties:
+            coordinates:
+              type: array
+              items:
+                type: number
+          example: {'coordinates':[55.674146, 12.569553]}
     responses:
       202:
-        description: Empty JSON accompanied by Location header with job url.
+        description: Success. `Location` header contains created job url.
         headers:
           location:
             schema: string
@@ -87,18 +109,38 @@ def address(coordinates):
         schema:
           type: object
           properties: {}
-    definitions:
-      coordinates:
-        type: object
-        properties:
-          coordinates:
-            type: array
-            items:
-              type: number
-        example: {'coordinates':[55.674146, 12.569553]}
+      422:
+        description: Reports an error with the provided JSON argument.
+        schema:
+          type: object
+          properties:
+            error: {}
+          example: {"error": {"coordinates": ["Coordinates list must contain exactly two floats."]}}
+      500:
+        description: Reports an error with the server.
+        schema:
+          type: object
+          properties:
+            error: {}
+          example: {"error": "Some error message."}
     """
-    job = q.enqueue(lookup_coordinates, coordinates)
-    return jsonify({}), 202, {"Location": url_for("address_job", job_id=job.get_id())}
+    try:
+        job = q.enqueue(lookup_coordinates, coordinates)
+    except Exception as e:
+        logger.error("Error enqueueing job:\n" + str(e))
+        return (
+            jsonify(
+                {
+                    "error": "The server has encountered an error and cannot complete the request."
+                }
+            ),
+            500,
+        )
+    return (
+        jsonify({}),
+        202,
+        {"Location": url_for("coordinates_job", job_id=job.get_id())},
+    )
 
 
 address_args = {"address": fields.String(required=True)}
@@ -116,7 +158,11 @@ def coordinates(address):
         in: body
         description: An address as a single string.
         schema:
-           $ref: '#/definitions/address'
+          type: object
+          properties:
+            address:
+              type: string
+          example: {'address':'3605 Rue Saint Urbain, Montreal, CA'}
     responses:
       202:
         description: Empty JSON accompanied by Location header with job url.
@@ -127,16 +173,38 @@ def coordinates(address):
         schema:
           type: object
           properties: {}
-    definitions:
-      address:
-        type: object
-        properties:
-          address:
-            type: string
-        example: {'address':'3605 Rue Saint Urbain, Montreal, CA'}
+      422:
+        description: Reports an error with the provided JSON argument.
+        schema:
+          type: object
+          properties:
+            error: {}
+          example: {"error": {"address": "Missing required field."}}
+      500:
+        description: Reports an error with the server.
+        schema:
+          type: object
+          properties:
+            error: {}
+          example: {"error": "Some error message."}
     """
-    job = q.enqueue(lookup_address, address)
-    return jsonify({}), 202, {"Location": url_for("coordinates_job", job_id=job.get_id())}
+    try:
+        job = q.enqueue(lookup_address, address)
+    except Exception as e:
+        logger.error("Error enqueueing job:\n" + str(e))
+        return (
+            jsonify(
+                {
+                    "error": "The server has encountered an error and cannot complete the request."
+                }
+            ),
+            500,
+        )
+    return (
+        jsonify({}),
+        202,
+        {"Location": url_for("coordinates_job", job_id=job.get_id())},
+    )
 
 
 @app.route("/address/job/<job_id>")
@@ -161,10 +229,36 @@ def address_job(job_id):
             {status: 'queued', 'result': null}
           finished:
             {status: 'finished', 'result':'3605 Rue Saint Urbain, Montreal, CA'}
+      404:
+        description: Error returned when the job cannot be found.
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+          example: {"error": "Job <id> does not exist."}
+      500:
+        description: Error returned when an error occurs during processing.
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+          example: {"error": "Error retrieving job."}
     """
-    job = q.fetch_job(job_id)
-    result = job.result
-    return jsonify({"result": result, "status": job.get_status()})
+    try:
+        job = q.fetch_job(job_id)
+        if job:
+            return jsonify({"result": job.result, "status": job.get_status()})
+        else:
+            return jsonify({"error": f"job '{job_id}' does not exist."}), 404
+    except Exception as e:
+        logger.error("Error retrieving job:\n" + str(e))
+        msg = (
+            "Error retrieving job: The server has encountered an error and "
+            "cannot complete the request."
+        )
+        return (jsonify({"error": msg}), 500)
 
 
 @app.route("/coordinates/job/<job_id>")
@@ -174,15 +268,41 @@ def coordinates_job(job_id):
     ---
     responses:
       200:
-        description: OK
+        description: Show job status. `result` is null unless status is finished.
         schema:
           type: object
           properties:
           example: {status: 'finished', 'result':'(45.5128137, -73.5737152)'}
+      404:
+        description: Error returned when the job cannot be found.
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+          example: {"error": "Job <id> does not exist."}
+      500:
+        description: Error returned when an error occurs during processing.
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+          example: {"error": "Error retrieving job."}
     """
-    job = q.fetch_job(job_id)
-    result = job.result
-    return jsonify({"result": result, "status": job.get_status()})
+    try:
+        job = q.fetch_job(job_id)
+        if job:
+            return jsonify({"result": job.result, "status": job.get_status()})
+        else:
+            return jsonify({"error": f"job '{job_id}' does not exist."}), 404
+    except Exception as e:
+        logger.error("Error retrieving job:\n" + str(e))
+        msg = (
+            "Error retrieving job: The server has encountered an error and "
+            "cannot complete the request."
+        )
+        return (jsonify({"error": msg}), 500)
 
 
 # Return validation errors as JSON (from webargs documentation)
@@ -191,6 +311,6 @@ def handle_error(err):
     headers = err.data.get("headers", None)
     messages = err.data.get("messages", ["Invalid request."])
     if headers:
-        return jsonify({"errors": messages}), err.code, headers
+        return jsonify({"error": messages}), err.code, headers
     else:
-        return jsonify({"errors": messages}), err.code
+        return jsonify({"error": messages}), err.code

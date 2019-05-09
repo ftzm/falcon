@@ -1,7 +1,9 @@
 version: '3'
 services:
   geo-worker:
-    image: geo-rest
+    build:
+      context: .
+      dockerfile: Dockerfile
     entrypoint:
       - rq
       - worker
@@ -10,8 +12,10 @@ services:
     depends_on:
       - redis
   geo-rest:
-    image: geo-rest
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
-      - "8001:80"
+      - "8000:80"
   redis:
     image: redis

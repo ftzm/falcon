@@ -3,8 +3,8 @@ import json
 from rq import Queue
 from fakeredis import FakeStrictRedis
 
-from geo_rest import geo_rest
-from geo_rest.geo_rest import lookup_coordinates, lookup_address
+import geo_rest
+from geo_rest.tasks import lookup_coordinates, lookup_address
 
 
 @pytest.fixture
@@ -26,8 +26,8 @@ def mock_side_effects(mq, mocker, monkeypatch):
     """
     mock_g = mocker.Mock()
     mock_osm = mocker.Mock(return_value=mock_g)
-    mock_osm = monkeypatch.setattr(geo_rest.geocoder, "osm", mock_osm)
-    monkeypatch.setattr(geo_rest, "q", mq)
+    mock_osm = monkeypatch.setattr(geo_rest.tasks.geocoder, "osm", mock_osm)
+    monkeypatch.setattr(geo_rest.views, "q", mq)
 
     class Resources:
         def __init__(self, mock_g, mq):

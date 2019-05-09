@@ -8,13 +8,18 @@ from geo_rest.tasks import lookup_coordinates, lookup_address
 
 
 @pytest.fixture
-def client(monkeypatch, mocker):
+def client():
+    """A fixture for the flask test client"""
     client = geo_rest.app.test_client()
     yield client
 
 
 @pytest.fixture
 def mq():
+    """
+    A mock queue that processes the job in the same thread via a mocked
+    Redis, so that the application flow can be simulated in side-effect-free tests.
+    """
     q = Queue(is_async=False, connection=FakeStrictRedis())
     yield q
 

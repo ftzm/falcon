@@ -13,6 +13,7 @@ q = Queue(connection=Redis(app.config["REDIS_URI"]))
 
 
 def validate_coordinates(coordinates):
+    """Ensure that coordinates number two and are within the legal range."""
     if not len(coordinates) == 2:
         raise ValidationError("Coordinates list must contain exactly two floats.")
     lat = coordinates[0]
@@ -255,9 +256,12 @@ def coordinates_job(job_id):
         return (jsonify({"error": msg}), 500)
 
 
-# Return validation errors as JSON (from webargs documentation)
 @app.errorhandler(422)
 def handle_error(err):
+    """
+    Return detailed error messages for invalid request parameters
+    (from the webargs documentation)
+    """
     headers = err.data.get("headers", None)
     messages = err.data.get("messages", ["Invalid request."])
     if headers:
